@@ -1,0 +1,14 @@
+name: student-offer-minimal
+channels:
+  - defaults
+dependencies:
+  - python=3.10
+  - pip
+  - boto3           # <-- needed for S3 artifact logging
+  - pip:
+      - mlflow==3.3.2
+      - scikit-learn
+      - pandas
+      - numpy
+      - joblib
+      - cloudpickle
