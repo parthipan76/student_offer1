@@ -1,5 +1,7 @@
 name: student-offer
 
+conda_env: conda.yaml
+
 entry_points:
   main:
     parameters:
