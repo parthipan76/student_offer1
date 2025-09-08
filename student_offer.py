@@ -61,15 +61,16 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--threshold", type=float, default=80.0, help="Marks cutoff for placement")
     parser.add_argument("--epochs", type=int, default=1, help="Training epochs")
-    parser.add_argument("--experiment-id", type=str, default=None, help="MLflow experiment id to log into")
+    parser.add_argument("--experiment-id", type=str, default=None,
+                        help="(optional) MLflow experiment id to log into")
     args = parser.parse_args()
 
-    # ensure MLflow points to your tracking server (prefer env var override)
+    # ensure MLflow points to your tracking server (env var override supported)
     tracking_uri = os.environ.get("MLFLOW_TRACKING_URI", "http://10.0.11.179:5000")
     mlflow.set_tracking_uri(tracking_uri)
     print("MLflow tracking URI:", mlflow.get_tracking_uri())
 
-    # If experiment-id passed, use it. Otherwise, default to experiment name (fallback)
+    # Determine experiment: prefer explicit experiment-id arg; otherwise ensure by name
     if args.experiment_id:
         exp = mlflow.get_experiment(args.experiment_id)
         if exp is None:
@@ -77,7 +78,6 @@ if __name__ == "__main__":
         experiment_id = args.experiment_id
         experiment_name = exp.name
     else:
-        # fallback: ensure experiment by name exists
         experiment_name = "sixdee_experiments"
         mlflow.set_experiment(experiment_name)
         exp = mlflow.get_experiment_by_name(experiment_name)
@@ -85,14 +85,15 @@ if __name__ == "__main__":
 
     print(f"Using experiment: {experiment_name} (id={experiment_id})")
 
-    # Train
+    # Train model
     model = StudentOfferLabelModel(threshold=args.threshold, epochs=args.epochs)
     acc = model.fit()
 
     run_name = "sixdee_logistic_regression_placement_prediction"
-    signature = ModelSignature(inputs=Schema([ColSpec("double", "marks")]), outputs=Schema([ColSpec("string")]))
+    signature = ModelSignature(inputs=Schema([ColSpec("double", "marks")]),
+                               outputs=Schema([ColSpec("string")]))
 
-    # Start run using explicit experiment_id (best practice)
+    # Start run using explicit experiment_id if available
     if experiment_id is not None:
         run_ctx = mlflow.start_run(experiment_id=experiment_id, run_name=run_name)
     else:
@@ -106,19 +107,17 @@ if __name__ == "__main__":
         print("Experiment (final):", exp_info.name if exp_info else run.info.experiment_id)
         print("MLflow UI:", f"{mlflow.get_tracking_uri()}/#/experiments/{run.info.experiment_id}/runs/{run.info.run_id}")
 
-        # Persist run id to tmp file (so DAG or humans can inspect easily)
+        # Save run id to file for debugging / DAG readability
         try:
             with open(PRINT_RUN_ID_FILE, "w") as fh:
                 fh.write(run.info.run_id)
         except Exception as e:
             print("Warning: failed to write run id file:", e)
 
-        # Log params & metrics
         mlflow.log_param("threshold", args.threshold)
         mlflow.log_param("epochs", args.epochs)
         mlflow.log_metric("train_accuracy", acc)
 
-        # Log model
         mlflow.pyfunc.log_model(
             artifact_path="model",
             python_model=model,
