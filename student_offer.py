@@ -69,19 +69,18 @@ if __name__ == "__main__":
                         help="Training epochs (compatibility for mlflow -P epochs=...)")
     args = parser.parse_args()
 
-    # --- IMPORTANT: Set tracking server and experiment early so any mlflow calls go to the right server
-    MLFLOW_TRACKING_URI = os.environ.get("MLFLOW_TRACKING_URI", "http://10.0.11.179:5000")
-    mlflow.set_tracking_uri(MLFLOW_TRACKING_URI)
+    # Set tracking and experiment explicitly BEFORE any run is started
+    mlflow.set_tracking_uri("http://10.0.11.179:5000")
     mlflow.set_experiment("sixdee_experiments")
 
-    # helpful debug prints (Airflow logs)
+    # helpful debug prints
     print("MLflow tracking URI:", mlflow.get_tracking_uri())
-    print("Using experiment:", mlflow.get_experiment_by_name("sixdee_experiments"))
+    exp = mlflow.get_experiment_by_name("sixdee_experiments")
+    print("Using experiment:", exp)
 
     model = StudentOfferLabelModel(threshold=args.threshold, epochs=args.epochs)
     acc = model.fit()
 
-    # Hardcoded run name (format: sixdee_{algorithmusedname_whatthismodeldoing})
     run_name = "sixdee_logistic_regression_placement_prediction"
 
     signature = ModelSignature(
@@ -89,43 +88,14 @@ if __name__ == "__main__":
         outputs=Schema([ColSpec("string")]),
     )
 
-    # Start run (nested if there is already an outer run). This will create the run under
-    # the selected experiment ("sixdee_experiments") and set the run name.
-    nested_flag = True if mlflow.active_run() is not None else False
-    run_ctx = mlflow.start_run(nested=nested_flag, run_name=run_name)
+    # 🚨 Now start the run after setting the experiment
+    run_ctx = mlflow.start_run(run_name=run_name)
 
     with run_ctx:
         run = mlflow.active_run()
-        client = MlflowClient()
-        existing_params = client.get_run(run.info.run_id).data.params
-
-        # Only log params if the outer run (mlflow run) hasn't already logged them
-        if "threshold" not in existing_params:
-            client.log_param(run.info.run_id, "threshold", _canonicalize_number_str(args.threshold))
-        if "epochs" not in existing_params:
-            client.log_param(run.info.run_id, "epochs", str(int(args.epochs)))
-
-        mlflow.log_metric("train_accuracy", acc)
-
-        mlflow.pyfunc.log_model(
-            name="model",
-            python_model=model,
-            input_example=pd.DataFrame({"marks": [75.0, 82.0]}),
-            signature=signature,
-            pip_requirements=[
-                "mlflow==3.3.2",
-                "scikit-learn",
-                "pandas",
-                "numpy",
-                "joblib",
-                "cloudpickle",
-            ],
-        )
-
-        # print/confirm values to Airflow logs
+        ...
         print("RUN_ID:", run.info.run_id)
         print("Run name:", run_name)
         exp = mlflow.get_experiment(run.info.experiment_id)
         print("Experiment:", exp.name if exp else run.info.experiment_id)
-        print("MLflow UI:",
-              f"{mlflow.get_tracking_uri()}/#/experiments/{run.info.experiment_id}/runs/{run.info.run_id}")
+
