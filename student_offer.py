@@ -57,6 +57,10 @@ def _canonicalize_number_str(x: float) -> str:
     if "." in s:
         s = s.rstrip("0").rstrip(".")
     return s
+# ensure MLflow talks to your server
+mlflow.set_tracking_uri("http://10.0.11.179:5000")
+# ensure experiment exists (create/select)
+mlflow.set_experiment("sixdee_experiments")
 
 
 if __name__ == "__main__":
@@ -79,7 +83,7 @@ if __name__ == "__main__":
     )
 
     # ensure experiment exists (will create if not present)
-    mlflow.set_experiment("sixdee_experiments")
+   
     exp = mlflow.get_experiment_by_name("sixdee_experiments")
 
     # Works with or without `mlflow run`; preserve nested run behavior, but pass run_name
