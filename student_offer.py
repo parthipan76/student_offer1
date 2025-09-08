@@ -13,6 +13,8 @@ from mlflow.models.signature import ModelSignature
 from mlflow.types import Schema, ColSpec
 from mlflow.tracking import MlflowClient
 
+print("FIXED VERSION - SEPTEMBER 8TH 2025")
+
 class StudentOfferLabelModel(mlflow.pyfunc.PythonModel):
     def __init__(self, threshold: float = 80.0, epochs: int = 1):
         self.pipeline = None
@@ -60,42 +62,40 @@ if __name__ == "__main__":
                         help="Training epochs")
     args = parser.parse_args()
     
-    print("🚀 DEBUG: Running FIXED student_offer.py script with experiment handling")
+    print("DEBUG: This is the FIXED version with experiment handling")
     
-    # Set tracking URI first
+    # CRITICAL: Set tracking URI FIRST
     tracking_uri = "http://10.0.11.179:5000"
     mlflow.set_tracking_uri(tracking_uri)
-    print(f"MLflow tracking URI set to: {mlflow.get_tracking_uri()}")
+    print(f"MLflow tracking URI: {mlflow.get_tracking_uri()}")
     
-    # Handle experiment creation/selection
+    # CRITICAL: Handle experiment properly  
     experiment_name = "sixdee_experiments"
     
+    print(f"Setting up experiment: {experiment_name}")
+    
+    # Try to get or create experiment
     try:
-        # Try to get the experiment
         experiment = mlflow.get_experiment_by_name(experiment_name)
-        
         if experiment is None:
-            print(f"🔧 Creating experiment: {experiment_name}")
+            print(f"Creating new experiment: {experiment_name}")
             experiment_id = mlflow.create_experiment(experiment_name)
             experiment = mlflow.get_experiment(experiment_id)
-        else:
-            print(f"✅ Using existing experiment: {experiment_name}")
         
-        print(f"Experiment ID: {experiment.experiment_id}")
-        print(f"Experiment Name: {experiment.name}")
+        print(f"Using experiment: {experiment.name} (ID: {experiment.experiment_id})")
         
     except Exception as e:
-        print(f"❌ Error with experiment setup: {e}")
+        print(f"ERROR in experiment setup: {e}")
         raise
     
-    # Set the experiment (THIS IS CRITICAL)
+    # CRITICAL: Set the experiment BEFORE starting run
     mlflow.set_experiment(experiment_name)
     
-    # Double-check the experiment is set correctly
-    current_exp = mlflow.get_experiment_by_name(experiment_name)
-    print(f"✅ Current experiment confirmed: {current_exp.name} (ID: {current_exp.experiment_id})")
+    # Verify experiment is set
+    current_exp = mlflow.get_experiment_by_name(experiment_name) 
+    print(f"Confirmed experiment: {current_exp.name} (ID: {current_exp.experiment_id})")
     
-    # Train the model
+    # Train model
     model = StudentOfferLabelModel(threshold=args.threshold, epochs=args.epochs)
     acc = model.fit()
     
@@ -105,35 +105,33 @@ if __name__ == "__main__":
         outputs=Schema([ColSpec("string")]),
     )
     
-    # Start run AFTER setting experiment
-    print(f"🏃 Starting MLflow run with name: {run_name}")
+    # Start run AFTER experiment is set
+    print(f"Starting MLflow run: {run_name}")
     
     with mlflow.start_run(run_name=run_name) as run:
         print(f"RUN_ID: {run.info.run_id}")
         print(f"Run name: {run_name}")
         
-        # CRITICAL: Verify we're in the correct experiment
+        # VERIFY the experiment
         exp = mlflow.get_experiment(run.info.experiment_id)
-        print(f"✅ Experiment: {exp.name if exp else run.info.experiment_id}")
-        print(f"🔗 MLflow UI: http://10.0.11.179:5000/#/experiments/{run.info.experiment_id}/runs/{run.info.run_id}")
+        experiment_name_actual = exp.name if exp else "UNKNOWN"
+        print(f"Experiment: {experiment_name_actual}")
+        print(f"MLflow UI: http://10.0.11.179:5000/#/experiments/{run.info.experiment_id}/runs/{run.info.run_id}")
         
-        # This should NOT say "Default" - if it does, something is wrong
-        if exp and exp.name == "Default":
-            raise RuntimeError(f"❌ ERROR: Run created in 'Default' experiment instead of '{experiment_name}'!")
+        # ERROR if still in Default
+        if experiment_name_actual == "Default":
+            raise RuntimeError(f"FAILED: Run created in Default experiment instead of {experiment_name}!")
         
-        # Log parameters
+        # Log everything
         mlflow.log_param("threshold", args.threshold)
         mlflow.log_param("epochs", args.epochs)
-        
-        # Log metrics
         mlflow.log_metric("train_accuracy", acc)
         
-        # Log model
         mlflow.pyfunc.log_model(
             artifact_path="model",
             python_model=model,
             signature=signature,
         )
         
-        print(f"✅ Model logged successfully with accuracy: {acc}")
-        print(f"🧪 View experiment at: http://10.0.11.179:5000/#/experiments/{run.info.experiment_id}")
+        print(f"SUCCESS: Model logged with accuracy {acc}")
+        print(f"View experiment at: http://10.0.11.179:5000/#/experiments/{run.info.experiment_id}")
