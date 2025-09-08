@@ -1,8 +1,10 @@
+#!/usr/bin/env python3
 import argparse
 import mlflow
 import mlflow.pyfunc
 import pandas as pd
 import numpy as np
+import os
 
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
@@ -57,10 +59,6 @@ def _canonicalize_number_str(x: float) -> str:
     if "." in s:
         s = s.rstrip("0").rstrip(".")
     return s
-# ensure MLflow talks to your server
-mlflow.set_tracking_uri("http://10.0.11.179:5000")
-# ensure experiment exists (create/select)
-mlflow.set_experiment("sixdee_experiments")
 
 
 if __name__ == "__main__":
@@ -70,6 +68,15 @@ if __name__ == "__main__":
     parser.add_argument("--epochs", type=int, default=1,
                         help="Training epochs (compatibility for mlflow -P epochs=...)")
     args = parser.parse_args()
+
+    # --- IMPORTANT: Set tracking server and experiment early so any mlflow calls go to the right server
+    MLFLOW_TRACKING_URI = os.environ.get("MLFLOW_TRACKING_URI", "http://10.0.11.179:5000")
+    mlflow.set_tracking_uri(MLFLOW_TRACKING_URI)
+    mlflow.set_experiment("sixdee_experiments")
+
+    # helpful debug prints (Airflow logs)
+    print("MLflow tracking URI:", mlflow.get_tracking_uri())
+    print("Using experiment:", mlflow.get_experiment_by_name("sixdee_experiments"))
 
     model = StudentOfferLabelModel(threshold=args.threshold, epochs=args.epochs)
     acc = model.fit()
@@ -82,11 +89,8 @@ if __name__ == "__main__":
         outputs=Schema([ColSpec("string")]),
     )
 
-    # ensure experiment exists (will create if not present)
-   
-    exp = mlflow.get_experiment_by_name("sixdee_experiments")
-
-    # Works with or without `mlflow run`; preserve nested run behavior, but pass run_name
+    # Start run (nested if there is already an outer run). This will create the run under
+    # the selected experiment ("sixdee_experiments") and set the run name.
     nested_flag = True if mlflow.active_run() is not None else False
     run_ctx = mlflow.start_run(nested=nested_flag, run_name=run_name)
 
@@ -104,7 +108,7 @@ if __name__ == "__main__":
         mlflow.log_metric("train_accuracy", acc)
 
         mlflow.pyfunc.log_model(
-            name="model",  # modern arg (replaces deprecated artifact_path)
+            name="model",
             python_model=model,
             input_example=pd.DataFrame({"marks": [75.0, 82.0]}),
             signature=signature,
@@ -118,9 +122,10 @@ if __name__ == "__main__":
             ],
         )
 
-        # print/confirm values
+        # print/confirm values to Airflow logs
         print("RUN_ID:", run.info.run_id)
         print("Run name:", run_name)
+        exp = mlflow.get_experiment(run.info.experiment_id)
         print("Experiment:", exp.name if exp else run.info.experiment_id)
         print("MLflow UI:",
               f"{mlflow.get_tracking_uri()}/#/experiments/{run.info.experiment_id}/runs/{run.info.run_id}")
