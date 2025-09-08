@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 import argparse
+import os
 import mlflow
 import mlflow.pyfunc
 import pandas as pd
 import numpy as np
-import os
 
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
@@ -54,7 +54,7 @@ class StudentOfferLabelModel(mlflow.pyfunc.PythonModel):
 
 
 def _canonicalize_number_str(x: float) -> str:
-    # Make "85.0" -> "85" so it won't collide with MLflow Projects' stringy params
+    # Make "85.0" -> "85"
     s = str(x)
     if "." in s:
         s = s.rstrip("0").rstrip(".")
@@ -69,18 +69,22 @@ if __name__ == "__main__":
                         help="Training epochs (compatibility for mlflow -P epochs=...)")
     args = parser.parse_args()
 
-    # Set tracking and experiment explicitly BEFORE any run is started
-    mlflow.set_tracking_uri("http://10.0.11.179:5000")
-    mlflow.set_experiment("sixdee_experiments")
+    # --- CRITICAL: set tracking URI and experiment BEFORE starting any run ---
+    MLFLOW_TRACKING_URI = os.environ.get("MLFLOW_TRACKING_URI", "http://10.0.11.179:5000")
+    mlflow.set_tracking_uri(MLFLOW_TRACKING_URI)
 
-    # helpful debug prints
-    print("MLflow tracking URI:", mlflow.get_tracking_uri())
+    # create / select the experiment BEFORE starting run
+    mlflow.set_experiment("sixdee_experiments")
     exp = mlflow.get_experiment_by_name("sixdee_experiments")
-    print("Using experiment:", exp)
+
+    # Debug prints — these must appear in Airflow train_model logs
+    print("MLflow tracking URI:", mlflow.get_tracking_uri())
+    print("Experiment object (should be sixdee_experiments):", exp)
 
     model = StudentOfferLabelModel(threshold=args.threshold, epochs=args.epochs)
     acc = model.fit()
 
+    # Hardcoded run name
     run_name = "sixdee_logistic_regression_placement_prediction"
 
     signature = ModelSignature(
@@ -88,14 +92,39 @@ if __name__ == "__main__":
         outputs=Schema([ColSpec("string")]),
     )
 
-    # 🚨 Now start the run after setting the experiment
+    # Start run AFTER setting experiment
     run_ctx = mlflow.start_run(run_name=run_name)
-
     with run_ctx:
         run = mlflow.active_run()
-        ...
+        client = MlflowClient()
+        existing_params = client.get_run(run.info.run_id).data.params
+
+        # Only log params if the outer run hasn't already logged them
+        if "threshold" not in existing_params:
+            client.log_param(run.info.run_id, "threshold", _canonicalize_number_str(args.threshold))
+        if "epochs" not in existing_params:
+            client.log_param(run.info.run_id, "epochs", str(int(args.epochs)))
+
+        mlflow.log_metric("train_accuracy", acc)
+
+        mlflow.pyfunc.log_model(
+            name="model",
+            python_model=model,
+            input_example=pd.DataFrame({"marks": [75.0, 82.0]}),
+            signature=signature,
+            pip_requirements=[
+                "mlflow==3.3.2",
+                "scikit-learn",
+                "pandas",
+                "numpy",
+                "joblib",
+                "cloudpickle",
+            ],
+        )
+
+        # Print for Airflow logs & verification
         print("RUN_ID:", run.info.run_id)
         print("Run name:", run_name)
-        exp = mlflow.get_experiment(run.info.experiment_id)
-        print("Experiment:", exp.name if exp else run.info.experiment_id)
-
+        exp_info = mlflow.get_experiment(run.info.experiment_id)
+        print("Experiment:", exp_info.name if exp_info else run.info.experiment_id)
+        print("MLflow UI:", f"{mlflow.get_tracking_uri()}/#/experiments/{run.info.experiment_id}/runs/{run.info.run_id}")
