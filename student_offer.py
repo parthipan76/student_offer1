@@ -2,6 +2,7 @@ import argparse
 import mlflow, mlflow.pyfunc
 import pandas as pd
 import numpy as np
+import re
 
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
@@ -58,6 +59,13 @@ def _canonicalize_number_str(x: float) -> str:
     return s
 
 
+def _camel_to_snake(name: str) -> str:
+    """Convert CamelCase -> snake_case and lowercase."""
+    s1 = re.sub('(.)([A-Z][a-z]+)', r'\1_\2', name)
+    s2 = re.sub('([a-z0-9])([A-Z])', r'\1_\2', s1)
+    return s2.replace("-", "_").lower()
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--threshold", type=float, default=80.0,
@@ -69,13 +77,33 @@ if __name__ == "__main__":
     model = StudentOfferLabelModel(threshold=args.threshold, epochs=args.epochs)
     acc = model.fit()
 
+    # derive algorithm name from the fitted pipeline (if available)
+    try:
+        # expects the estimator step to be named 'lr' as in your pipeline
+        estimator_cls_name = model.pipeline.named_steps["lr"].__class__.__name__
+        algorithm_used = _camel_to_snake(estimator_cls_name)
+    except Exception:
+        # fallback if pipeline/step missing for some reason
+        algorithm_used = "unknown_algorithm"
+
+    # describe what the model does
+    what_model_does = "placement_prediction"
+
+    # final run name format
+    run_name = f"sixdee_logisticRegression_student_offer_prediction"
+
     signature = ModelSignature(
         inputs=Schema([ColSpec("double", "marks")]),
         outputs=Schema([ColSpec("string")]),
     )
 
-    # Works with or without `mlflow run`
-    run_ctx = mlflow.start_run(nested=True) if mlflow.active_run() is not None else mlflow.start_run()
+    # ensure experiment exists (will create if not present)
+    exp = mlflow.set_experiment("sixdee_experiments")
+
+    # Works with or without `mlflow run`; preserve nested run behavior, but pass run_name
+    nested_flag = True if mlflow.active_run() is not None else False
+    run_ctx = mlflow.start_run(nested=nested_flag, run_name=run_name)
+
     with run_ctx:
         run = mlflow.active_run()
         client = MlflowClient()
@@ -104,8 +132,9 @@ if __name__ == "__main__":
             ],
         )
 
-        exp = mlflow.get_experiment(run.info.experiment_id)
+        # print/confirm values
         print("RUN_ID:", run.info.run_id)
+        print("Run name:", run_name)
         print("Experiment:", exp.name if exp else run.info.experiment_id)
         print("MLflow UI:",
               f"{mlflow.get_tracking_uri()}/#/experiments/{run.info.experiment_id}/runs/{run.info.run_id}")
