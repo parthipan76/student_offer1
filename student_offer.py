@@ -47,7 +47,7 @@ class StudentOfferLabelModel(mlflow.pyfunc.PythonModel):
         if not isinstance(model_input, pd.DataFrame):
             model_input = pd.DataFrame(model_input)
         preds = self.pipeline.predict(model_input[["marks"]].astype(float))
-        return np.where(preds == 1, "Placed", "Not Placed").astype(str)
+        return np.where(preds == 1, "got offer", "Not Placed").astype(str)
 
 
 def _canonicalize_number_str(x: float) -> str:
